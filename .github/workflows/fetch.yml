@@ -1,1 +1,132 @@
+name: Typhoon Data Fetch
 
+on:
+  schedule:
+    - cron: '0 0,6,12,18 * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch-typhoon:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch JMA and NHC data
+        run: |
+          curl -s -o /tmp/jma.json \
+            -H "User-Agent: Mozilla/5.0" \
+            "https://www.jma.go.jp/bosai/typhoon/data/index.json" \
+            --max-time 30 || echo "JMA failed"
+
+          curl -s -o /tmp/nhc.xml \
+            -H "User-Agent: Mozilla/5.0" \
+            "https://www.nhc.noaa.gov/index-at.xml" \
+            --max-time 30 || echo "NHC failed"
+
+      - name: Parse and save typhoon.json
+        run: |
+          python3 << 'PYEOF'
+          import json, re, math, os
+          from datetime import datetime, timezone, timedelta
+
+          KAGOSHIMA = (31.6, 130.56)
+
+          def haversine(la1, lo1, la2, lo2):
+              R = 6371
+              dL = math.radians(la2 - la1)
+              dO = math.radians(lo2 - lo1)
+              a = math.sin(dL/2)**2 + math.cos(math.radians(la1)) * math.cos(math.radians(la2)) * math.sin(dO/2)**2
+              return round(R * 2 * math.asin(math.sqrt(a)))
+
+          typhoons = []
+          jma_ok = False
+          nhc_ok = False
+
+          try:
+              with open('/tmp/jma.json', 'r') as f:
+                  raw = f.read().strip()
+              if raw and len(raw) > 5:
+                  data = json.loads(raw)
+                  arr = data if isinstance(data, list) else data.get('typhoon', data.get('data', []))
+                  for t in arr:
+                      if not t: continue
+                      lat = float(t.get('lat') or t.get('latitude') or 0)
+                      lon = float(t.get('lon') or t.get('longitude') or 0)
+                      if not lat or not lon: continue
+                      typhoons.append({
+                          'source': 'JMA',
+                          'name': t.get('name') or t.get('eName') or t.get('jName') or 'Typhoon',
+                          'lat': round(lat, 1),
+                          'lon': round(lon, 1),
+                          'dist': haversine(KAGOSHIMA[0], KAGOSHIMA[1], lat, lon),
+                          'pressure': str(t.get('pressure') or t.get('centralPressure') or '--'),
+                          'wind': str(t.get('wind') or t.get('maxWind') or '--'),
+                      })
+                  jma_ok = True
+                  print(f"JMA OK: {len(typhoons)} typhoons")
+          except Exception as e:
+              print(f"JMA error: {e}")
+
+          try:
+              with open('/tmp/nhc.xml', 'r') as f:
+                  xml = f.read()
+              items = re.findall(r'<item>(.*?)</item>', xml, re.DOTALL)
+              nhc_count = 0
+              for item in items:
+                  title_m = re.search(r'<title>(.*?)</title>', item)
+                  desc_m = re.search(r'<description>(.*?)</description>', item, re.DOTALL)
+                  if not title_m or not desc_m: continue
+                  t_text = title_m.group(1)
+                  if not re.search(r'typhoon|tropical|storm|depression', t_text, re.I): continue
+                  d_text = desc_m.group(1)
+                  la = re.search(r'([\d.]+)\s*[Nn]', d_text)
+                  lo = re.search(r'([\d.]+)\s*[Ee]', d_text)
+                  if not la or not lo: continue
+                  lat, lon = float(la.group(1)), float(lo.group(1))
+                  key = (round(lat), round(lon))
+                  if any(round(t['lat']) == key[0] and round(t['lon']) == key[1] for t in typhoons): continue
+                  typhoons.append({
+                      'source': 'NHC',
+                      'name': re.sub(r'\s*advisory.*', '', t_text, flags=re.I).strip(),
+                      'lat': round(lat, 1), 'lon': round(lon, 1),
+                      'dist': haversine(KAGOSHIMA[0], KAGOSHIMA[1], lat, lon),
+                      'pressure': '--', 'wind': '--',
+                  })
+                  nhc_count += 1
+              nhc_ok = True
+              print(f"NHC OK: {nhc_count} added")
+          except Exception as e:
+              print(f"NHC error: {e}")
+
+          now_utc = datetime.now(timezone.utc)
+          now_jst = now_utc + timedelta(hours=9)
+
+          output = {
+              'updated_utc': now_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+              'updated_jst': now_jst.strftime('%Y/%m/%d %H:%M JST'),
+              'typhoon_count': len(typhoons),
+              'typhoons': typhoons,
+              'sources': {'jma': jma_ok, 'nhc': nhc_ok}
+          }
+
+          with open('typhoon.json', 'w', encoding='utf-8') as f:
+              json.dump(output, f, ensure_ascii=False, indent=2)
+
+          print(f"Saved typhoon.json — {len(typhoons)} typhoons")
+          PYEOF
+
+      - name: Commit typhoon.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add typhoon.json
+          if git diff --staged --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Update typhoon.json $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
