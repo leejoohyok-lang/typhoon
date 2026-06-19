@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>あずさ専用 台風監視</title>
+<style>
+  :root {
+    --bg: #1a3a5c;
+    --bg2: #1f4a73;
+    --bg3: #255a8a;
+    --border: rgba(255,255,255,0.12);
+    --text: #eef5ff;
+    --muted: #8bb8d8;
+    --accent: #7dd8fa;
+    --danger: #ff8080;
+    --warn: #ffd060;
+    --safe: #4ee8a8;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; }
+  body {
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,'Hiragino Sans','Yu Gothic',sans-serif;
+    max-width:430px; margin:0 auto;
+    min-height:100vh; padding-bottom:90px;
+    overflow-x:hidden;
+  }
+
+  /* ── 상단 헤더 (앱 스타일) ── */
+  .app-header {
+    position:sticky; top:0; z-index:100;
+    background:rgba(26,58,92,0.93);
+    backdrop-filter:blur(12px);
+    -webkit-backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--border);
+    padding:12px 16px 10px;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .app-header-left { display:flex; flex-direction:column; }
+  .app-name { font-size:11px; color:var(--muted); letter-spacing:1px; }
+  .app-title { font-size:17px; font-weight:700; line-height:1.3; }
+  .app-title .hl { color:var(--accent); }
+  .app-title .dl { color:var(--danger); }
+  .header-status {
+    display:flex; flex-direction:column; align-items:flex-end; gap:4px;
+  }
+  .live-badge {
+    display:flex; align-items:center; gap:4px;
+    background:rgba(52,211,153,0.12); border:1px solid rgba(52,211,153,0.3);
+    border-radius:20px; padding:3px 10px; font-size:10px; color:var(--safe); font-weight:600;
+  }
+  .live-dot { width:5px; height:5px; border-radius:50%; background:var(--safe); animation:pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .last-upd { font-size:9px; color:var(--muted); }
+
+  /* ── 스크롤 컨텐츠 ── */
+  .scroll-body { padding:12px 14px 0; }
+
+  /* ── 메인 판정 카드 (풀 블리드) ── */
+  .verdict-card {
+    border-radius:16px; padding:20px 18px; margin-bottom:12px;
+    border:1px solid var(--border); transition:all 0.4s;
+    background:var(--bg2);
+  }
+  .verdict-card.loading   { background:var(--bg2); }
+  .verdict-card.danger    { border-color:rgba(248,113,113,0.5); background:rgba(248,113,113,0.07); }
+  .verdict-card.warning   { border-color:rgba(251,191,36,0.5);  background:rgba(251,191,36,0.07); }
+  .verdict-card.tracking  { border-color:rgba(56,189,248,0.4);  background:rgba(56,189,248,0.05); }
+  .verdict-card.standby   { border-color:rgba(52,211,153,0.3);  background:rgba(52,211,153,0.04); }
+  .verdict-top { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+  .verdict-icon { font-size:36px; line-height:1; flex-shrink:0; }
+  .verdict-title { font-size:16px; font-weight:700; line-height:1.3; }
+  .verdict-sub { font-size:12px; color:var(--muted); line-height:1.7; }
+  .verdict-kr { font-size:11px; color:var(--muted); margin-top:6px; padding-top:6px; border-top:1px solid var(--border); opacity:0.8; }
+
+  /* ── 카운트다운 (가로 풀) ── */
+  .countdown {
+    background:var(--bg2); border:1px solid var(--border); border-radius:16px;
+    padding:14px 16px; margin-bottom:12px;
+  }
+  .cd-label { font-size:10px; color:var(--muted); margin-bottom:10px; letter-spacing:1px; text-align:center; }
+  .cd-units { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .cd-unit { background:var(--bg3); border-radius:10px; padding:10px 4px; text-align:center; }
+  .cd-num { font-size:24px; font-weight:700; color:var(--accent); line-height:1; display:block; }
+  .cd-lbl { font-size:9px; color:var(--muted); margin-top:2px; }
+
+  /* ── 스탯 2열 그리드 ── */
+  .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+  .stat-card {
+    background:var(--bg2); border:1px solid var(--border); border-radius:14px;
+    padding:14px 14px 12px;
+  }
+  .stat-lbl { font-size:10px; color:var(--muted); margin-bottom:6px; line-height:1.4; }
+  .stat-val { font-size:20px; font-weight:700; color:var(--text); line-height:1; }
+  .stat-val.red    { color:var(--danger); }
+  .stat-val.yellow { color:var(--warn); }
+  .stat-val.blue   { color:var(--accent); }
+  .stat-val.green  { color:var(--safe); }
+  .stat-val.muted  { color:var(--muted); font-size:15px; }
+
+  /* ── 게이지 ── */
+  .gauge-section { background:var(--bg2); border:1px solid var(--border); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .gauge-head { display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-bottom:8px; }
+  .gauge-bar { height:8px; background:var(--bg3); border-radius:4px; overflow:hidden; }
+  .gauge-fill { height:100%; border-radius:4px; transition:width 1s ease; }
+  .gauge-fill.danger  { background:var(--danger); }
+  .gauge-fill.warning { background:var(--warn); }
+  .gauge-fill.far     { background:var(--accent); }
+  .gauge-fill.none    { background:var(--muted); width:0!important; }
+  .gauge-ticks { display:flex; justify-content:space-between; font-size:9px; color:var(--muted); margin-top:4px; }
+
+  /* ── 알림 배너 ── */
+  .alert-banner {
+    border-radius:12px; padding:12px 14px; font-size:12px; margin-bottom:12px;
+    display:flex; align-items:flex-start; gap:8px; line-height:1.6;
+  }
+  .alert-banner.info     { background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.2); color:var(--accent); }
+  .alert-banner.caution  { background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.25); color:var(--warn); }
+  .alert-banner.critical { background:rgba(248,113,113,0.08); border:1px solid rgba(248,113,113,0.3); color:var(--danger); }
+  .alert-icon { font-size:16px; flex-shrink:0; margin-top:1px; }
+
+  /* ── 섹션 카드 ── */
+  .section-card { background:var(--bg2); border:1px solid var(--border); border-radius:16px; padding:16px 14px; margin-bottom:12px; }
+  .section-head { font-size:10px; font-weight:600; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-bottom:14px; }
+
+  /* ── 타임라인 ── */
+  .tl-item { display:flex; gap:12px; margin-bottom:14px; }
+  .tl-spine { display:flex; flex-direction:column; align-items:center; }
+  .tl-dot { width:11px; height:11px; border-radius:50%; border:2px solid var(--muted); background:var(--bg3); flex-shrink:0; margin-top:2px; transition:all 0.4s; }
+  .tl-dot.done   { border-color:var(--safe);   background:var(--safe); }
+  .tl-dot.active { border-color:var(--accent);  background:var(--accent); box-shadow:0 0 7px var(--accent); }
+  .tl-dot.danger { border-color:var(--danger);  background:var(--danger); }
+  .tl-line { width:1px; flex:1; background:var(--border); margin:3px 0; min-height:14px; }
+  .tl-body { flex:1; padding-bottom:2px; }
+  .tl-date { font-size:10px; color:var(--muted); margin-bottom:3px; }
+  .tl-text { font-size:12px; line-height:1.6; }
+  .tl-kr { font-size:10px; color:var(--muted); margin-top:2px; opacity:0.75; }
+  .today-badge { display:inline-block; font-size:9px; padding:1px 6px; background:rgba(56,189,248,0.15); color:var(--accent); border:1px solid rgba(56,189,248,0.3); border-radius:5px; margin-left:5px; font-weight:700; vertical-align:middle; }
+  .target-badge { display:inline-block; font-size:9px; padding:1px 6px; background:rgba(248,113,113,0.15); color:var(--danger); border:1px solid rgba(248,113,113,0.3); border-radius:5px; margin-left:5px; font-weight:700; vertical-align:middle; }
+
+  /* ── 태풍 아이템 ── */
+  .typhoon-item {
+    background:var(--bg3); border-radius:12px; padding:12px 13px; margin-bottom:8px;
+    border-left:3px solid var(--accent);
+  }
+  .typhoon-item.close  { border-left-color:var(--danger); }
+  .typhoon-item.medium { border-left-color:var(--warn); }
+  .typhoon-name { font-weight:700; font-size:14px; margin-bottom:5px; display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
+  .typhoon-meta { font-size:11px; color:var(--muted); line-height:1.9; }
+  .dist-badge { font-size:10px; padding:1px 7px; border-radius:8px; font-weight:600; }
+  .dist-close  { background:rgba(248,113,113,0.2); color:#fca5a5; }
+  .dist-medium { background:rgba(251,191,36,0.2);  color:#fcd34d; }
+  .dist-far    { background:rgba(56,189,248,0.15); color:#7dd3fc; }
+
+  /* ── 소스 링크 ── */
+  .source-links { display:flex; gap:7px; flex-wrap:wrap; margin-top:10px; }
+  .source-link { font-size:11px; padding:5px 11px; border:1px solid var(--border); border-radius:8px; color:var(--muted); text-decoration:none; }
+  .source-link:active { background:var(--bg3); }
+  .source-row { font-size:11px; color:var(--muted); line-height:2.1; }
+
+  /* ── 하단 고정 갱신 버튼 ── */
+  .bottom-bar {
+    position:fixed; bottom:0; left:50%; transform:translateX(-50%);
+    width:100%; max-width:430px;
+    padding:10px 14px 20px;
+    background:rgba(26,58,92,0.93);
+    backdrop-filter:blur(12px);
+    -webkit-backdrop-filter:blur(12px);
+    border-top:1px solid var(--border);
+  }
+  .refresh-btn {
+    width:100%; padding:14px; border-radius:14px; border:none; cursor:pointer;
+    background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3);
+    color:var(--accent); font-size:14px; font-weight:600;
+    transition:all 0.15s; font-family:inherit;
+  }
+  .refresh-btn:active { transform:scale(0.97); background:rgba(56,189,248,0.22); }
+
+  /* ── 스피너 ── */
+  .spinner { display:inline-block; width:13px; height:13px; border:2px solid rgba(56,189,248,0.2); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; vertical-align:-2px; margin-right:4px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* ── footer ── */
+  .footer { font-size:10px; color:var(--muted); text-align:center; padding:4px 0 8px; line-height:1.8; }
+  .footer a { color:var(--accent); text-decoration:none; }
+</style>
+</head>
+<body>
+
+<!-- 상단 앱 헤더 -->
+<div class="app-header">
+  <div class="app-header-left">
+    <span class="app-name">あずさ専用 🌸</span>
+    <div class="app-title">
+      <span class="hl">鹿児島</span>への台風<span class="dl">上陸監視</span>
+    </div>
+  </div>
+  <div class="header-status">
+    <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+    <div class="last-upd" id="last-update">--</div>
+  </div>
+</div>
+
+<!-- 스크롤 본문 -->
+<div class="scroll-body">
+
+  <!-- 알림 배너 -->
+  <div id="alert-banner" class="alert-banner info" style="margin-top:12px;">
+    <span class="alert-icon" id="alert-icon">ℹ️</span>
+    <div id="alert-text">データ取得中。しばらくお待ちください。<br><span style="font-size:10px;opacity:0.75;">(데이터를 가져오는 중입니다. 잠시 기다려 주세요)</span></div>
+  </div>
+
+  <!-- 메인 판정 카드 -->
+  <div id="verdict" class="verdict-card loading">
+    <div class="verdict-top">
+      <div class="verdict-icon">⏳</div>
+      <div class="verdict-title">監視システム起動中</div>
+    </div>
+    <div class="verdict-sub">気象データを取得し、鹿児島への台風上陸可能性を判定中です。</div>
+    <div class="verdict-kr">(기상 데이터를 수집하여 가고시마 상륙 가능성을 판정하고 있습니다)</div>
+  </div>
+
+  <!-- 카운트다운 -->
+  <div class="countdown">
+    <div class="cd-label">⏱ 警戒日 6月27日 まで (경계일 6월 27일까지) · 次回更新 6時間後</div>
+    <div class="cd-units">
+      <div class="cd-unit"><span class="cd-num" id="cd-d">--</span><div class="cd-lbl">日 (일)</div></div>
+      <div class="cd-unit"><span class="cd-num" id="cd-h">--</span><div class="cd-lbl">時間 (시간)</div></div>
+      <div class="cd-unit"><span class="cd-num" id="cd-m">--</span><div class="cd-lbl">分 (분)</div></div>
+      <div class="cd-unit"><span class="cd-num" id="cd-s">--</span><div class="cd-lbl">秒 (초)</div></div>
+    </div>
+  </div>
+
+  <!-- 스탯 2열 -->
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-lbl">最近接台風→鹿児島<br>(최근접 태풍→가고시마)</div>
+      <div class="stat-val muted" id="st-dist">台風なし</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-lbl">活動中台風数<br>(활동 중 태풍 수)</div>
+      <div class="stat-val green" id="st-count">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-lbl">中心気圧<br>(중심기압)</div>
+      <div class="stat-val muted" id="st-pressure">-- hPa</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-lbl">最大風速<br>(최대풍속)</div>
+      <div class="stat-val muted" id="st-wind">-- m/s</div>
+    </div>
+  </div>
+
+  <!-- 거리 게이지 -->
+  <div class="gauge-section">
+    <div class="gauge-head">
+      <span>鹿児島への距離 (가고시마까지)</span>
+      <span id="gauge-text">台風未発生</span>
+    </div>
+    <div class="gauge-bar"><div class="gauge-fill none" id="gauge-fill" style="width:0%"></div></div>
+    <div class="gauge-ticks">
+      <span>0km 上陸</span><span>200km 直撃圏</span><span>500km 接近圏</span><span>2000km+</span>
+    </div>
+  </div>
+
+  <!-- 타임라인 -->
+  <div class="section-card">
+    <div class="section-head">📅 監視タイムライン (감시 타임라인)</div>
+    <div id="timeline"></div>
+  </div>
+
+  <!-- 태풍 목록 -->
+  <div class="section-card">
+    <div class="section-head">📡 現在の台風リスト (현재 태풍 목록)</div>
+    <div id="typhoon-list">
+      <div style="color:var(--muted);font-size:12px;padding:10px 0;text-align:center;">
+        <span class="spinner"></span>取得中… (데이터를 가져오고 있습니다)
+      </div>
+    </div>
+  </div>
+
+  <!-- 소스 -->
+  <div class="section-card">
+    <div class="section-head">データソース (데이터 소스)</div>
+    <div class="source-row" id="source-status">確認中…</div>
+    <div class="source-links">
+      <a class="source-link" href="https://www.jma.go.jp/bosai/map.html#5/31.6/130.6/&elem=typhoon" target="_blank">🌀 気象庁</a>
+      <a class="source-link" href="https://earth.nullschool.net/#current/wind/surface/level/orthographic=-232.75,24.82,1353" target="_blank">🌍 earth.nullschool</a>
+      <a class="source-link" href="https://www.jma.go.jp/en/typh/" target="_blank">JMA英語</a>
+      <a class="source-link" href="https://agora.ex.nii.ac.jp/digital-typhoon/" target="_blank">Digital Typhoon</a>
+    </div>
+  </div>
+
+  <!-- footer -->
+  <div class="footer">
+    出典: JMA / NOAA NHC / Digital Typhoon<br>
+    重要な判断は <a href="https://www.jma.go.jp/bosai/" target="_blank">気象庁公式</a> でご確認ください<br>
+    (중요한 판단은 반드시 기상청 공식 사이트에서 확인해 주세요)
+  </div>
+
+</div><!-- /scroll-body -->
+
+<!-- 하단 고정 버튼 -->
+<div class="bottom-bar">
+  <button class="refresh-btn" onclick="fetchAll()">🔄 今すぐ更新 (지금 바로 갱신하기)</button>
+</div>
+
+<script>
+const KAGOSHIMA={lat:31.6,lon:130.56};
+const TARGET_DATE=new Date("2026-06-27T00:00:00+09:00");
+const DANGER_KM=200,WARN_KM=500;
+
+const todayJST=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Tokyo'}));
+
+function haversine(la1,lo1,la2,lo2){
+  const R=6371,dL=(la2-la1)*Math.PI/180,dO=(lo2-lo1)*Math.PI/180;
+  const a=Math.sin(dL/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dO/2)**2;
+  return R*2*Math.asin(Math.sqrt(a));
+}
+
+function updateCountdown(){
+  const diff=TARGET_DATE-new Date();
+  if(diff<=0){['cd-d','cd-h','cd-m','cd-s'].forEach(id=>document.getElementById(id).textContent='0');return;}
+  document.getElementById('cd-d').textContent=Math.floor(diff/86400000);
+  document.getElementById('cd-h').textContent=String(Math.floor((diff%86400000)/3600000)).padStart(2,'0');
+  document.getElementById('cd-m').textContent=String(Math.floor((diff%3600000)/60000)).padStart(2,'0');
+  document.getElementById('cd-s').textContent=String(Math.floor((diff%60000)/1000)).padStart(2,'0');
+}
+
+function buildTimeline(typhoons){
+  const todayNum=todayJST.getMonth()*100+todayJST.getDate();
+  const nearest=typhoons.length>0?typhoons.slice().sort((a,b)=>a.dist-b.dist)[0]:null;
+  function dayState(m,d){const n=m*100+d;return n<todayNum?'done':n===todayNum?'active':'future';}
+
+  const steps=[
+    {m:6,d:19,
+      jaDate:'6月19日',krDate:'6월 19일',
+      jaDone:'監視開始日。西太平洋の台風発生を監視した。',krDone:'감시 시작일. 서태평양 태풍 발생을 감시했습니다.',
+      jaActive:'本日より監視開始。台風の発生を継続監視中。',krActive:'오늘부터 감시 시작. 태풍 발생을 계속 감시 중입니다.',
+      jaFuture:'監視開始日。',krFuture:'감시 시작일.'
+    },
+    {m:6,d:22,
+      jaDate:'6月22〜23日',krDate:'6월 22~23일',
+      jaDone:'フィリピン東方で台風発生可能性があった時期。',krDone:'필리핀 동쪽 해상에서 태풍 발생 가능성이 있었던 시기입니다.',
+      jaActive:'フィリピン東方付近の発生兆候を監視中。',krActive:'필리핀 동쪽 부근 발생 징후를 감시 중입니다.',
+      jaFuture:'フィリピン東方で台風発生が予想される時期。',krFuture:'필리핀 동쪽에서 태풍 발생이 예상되는 시기입니다.'
+    },
+    {m:6,d:24,
+      jaDate:'6月24〜25日',krDate:'6월 24~25일',
+      jaDone:'台風が北上し沖縄〜奄美方面へ接近した可能性がある時期。',krDone:'태풍이 북상하여 오키나와·아마미 방면으로 접근 가능성이 있었던 시기입니다.',
+      jaActive:'台風が北上中かを確認中。沖縄〜奄美方面への接近を監視。',krActive:'태풍 북상 여부 확인 중. 오키나와·아마미 방면 접근을 감시 중입니다.',
+      jaFuture:`<span style="color:var(--text);font-weight:600;">接近シナリオ別確率</span><br>🔴 直接北上し接近: <strong style="color:var(--warn);">約35%</strong><br>🟡 奄美付近を通過: <strong style="color:var(--accent);">約40%</strong><br>🟢 東方海上を通過: <strong style="color:var(--safe);">約25%</strong>`,
+      krFuture:'진로는 아직 확정되지 않았으며 시나리오별 확률로 감시 중입니다.'
+    },
+    {m:6,d:26,
+      jaDate:'6月26日',krDate:'6월 26일',
+      jaDone:'進路の重要分岐点。偏西風との相互作用で進路が決まった時期。',krDone:'진로의 중요 분기점. 편서풍 상호작용으로 진로가 결정된 시기입니다.',
+      jaActive:'今日が進路の重要分岐点。偏西風との相互作用で北東転向するかを確認中。',krActive:'오늘이 진로의 중요 분기점. 편서풍 상호작용으로 북동 전향 여부를 확인 중입니다.',
+      jaFuture:`<span style="color:var(--text);font-weight:600;">鹿児島上陸シナリオ別確率</span><br>🔴 鹿児島に直接上陸: <strong style="color:var(--danger);">約20%</strong><br>🟡 九州西岸〜熊本に上陸: <strong style="color:var(--warn);">約30%</strong><br>🟢 東方へ転向し太平洋側へ: <strong style="color:var(--safe);">約35%</strong><br>⚪ 温帯低気圧に変化: <strong style="color:var(--muted);">約15%</strong>`,
+      krFuture:'진로 확정 분기점. 가고시마 상륙 가능성을 시나리오별로 감시합니다.'
+    },
+    {m:6,d:27,
+      jaDate:'6月27日 🎯',krDate:'6월 27일',
+      jaDone:'警戒日。結果はデータを参照してください。',krDone:'경계일. 결과는 데이터를 참조해 주세요.',
+      jaActive:'本日が警戒日。鹿児島への台風上陸有無を最終判定中。',krActive:'오늘이 경계일입니다. 가고시마 태풍 상륙 여부를 최종 판정 중입니다.',
+      jaFuture:'最終警戒日。鹿児島への直接上陸有無をリアルタイムで判定。',krFuture:'최종 경계일. 가고시마 직접 상륙 여부를 실시간으로 판정합니다.'
+    }
+  ];
+
+  let html='';
+  steps.forEach((s,i)=>{
+    const state=dayState(s.m,s.d);
+    const isLast=i===steps.length-1;
+    const dot=s.d===27?'danger':(state==='done'?'done':state==='active'?'active':'future');
+    const jaText=state==='done'?s.jaDone:state==='active'?s.jaActive:s.jaFuture;
+    const krText=state==='done'?s.krDone:state==='active'?s.krActive:s.krFuture;
+    const todayBadge=state==='active'?'<span class="today-badge">TODAY</span>':'';
+    const targetBadge=s.d===27?'<span class="target-badge">TARGET</span>':'';
+    let extra='';
+    if(state==='active'&&nearest){
+      const dc=nearest.dist<DANGER_KM?'var(--danger)':nearest.dist<WARN_KM?'var(--warn)':'var(--accent)';
+      extra=`<div style="margin-top:5px;font-size:11px;color:${dc};font-weight:600;">→ ${nearest.name}: ${nearest.dist.toLocaleString()}km</div>`;
+    }
+    html+=`<div class="tl-item">
+      <div class="tl-spine"><div class="tl-dot ${dot}"></div>${isLast?'':'<div class="tl-line"></div>'}</div>
+      <div class="tl-body">
+        <div class="tl-date">${s.jaDate} (${s.krDate})${todayBadge}${targetBadge}</div>
+        <div class="tl-text">${jaText}${extra}</div>
+        <div class="tl-kr">(${krText})</div>
+      </div>
+    </div>`;
+  });
+  document.getElementById('timeline').innerHTML=html;
+}
+
+function setLastUpdate(){
+  document.getElementById('last-update').textContent=new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'更新';
+}
+function setAlert(level,ja,kr){
+  const el=document.getElementById('alert-banner');
+  el.className='alert-banner '+level;
+  document.getElementById('alert-icon').textContent=level==='critical'?'🚨':level==='caution'?'⚠️':'ℹ️';
+  document.getElementById('alert-text').innerHTML=`<strong>${ja}</strong><br><span style="font-size:10px;opacity:0.75;">(${kr})</span>`;
+}
+function setVerdict(level,icon,jaTitle,jaSub,krSub){
+  const el=document.getElementById('verdict');
+  el.className='verdict-card '+level;
+  el.innerHTML=`<div class="verdict-top"><div class="verdict-icon">${icon}</div><div class="verdict-title">${jaTitle}</div></div><div class="verdict-sub">${jaSub}</div><div class="verdict-kr">(${krSub})</div>`;
+}
+function updateGauge(dist){
+  const fill=document.getElementById('gauge-fill');
+  if(!dist||dist>9000){fill.style.width='0%';fill.className='gauge-fill none';document.getElementById('gauge-text').textContent='台風未発生 (태풍 미발생)';return;}
+  const pct=Math.max(2,Math.min(100,100-(dist/2000)*100));
+  fill.style.width=pct+'%';
+  fill.className='gauge-fill '+(dist<DANGER_KM?'danger':dist<WARN_KM?'warning':'far');
+  document.getElementById('gauge-text').textContent=dist.toLocaleString()+' km';
+}
+
+/* GitHub Actions が生成した typhoon.json を直接読む (CORS なし) */
+async function fetchTyphoonJSON(){
+  try{
+    const r=await fetch('./typhoon.json?_='+Date.now(),{signal:AbortSignal.timeout(10000)});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const data=await r.json();
+    return{ok:true,data};
+  }catch(e){
+    return{ok:false,data:null};
+  }
+}
+
+function renderTyphoons(typhoons){
+  const list=document.getElementById('typhoon-list');
+  buildTimeline(typhoons);
+
+  if(typhoons.length===0){
+    list.innerHTML=`<div style="text-align:center;padding:16px 0;color:var(--muted);font-size:12px;"><div style="font-size:28px;margin-bottom:8px;">📡</div>現在、西太平洋に活動中の台風は観測されていません。<br>台風が発生次第、自動で検出・表示されます。<br><span style="font-size:10px;">(현재 서태평양에 활동 중인 태풍은 없습니다. 발생 시 자동 표시됩니다)</span></div>`;
+    document.getElementById('st-count').textContent='0'; document.getElementById('st-count').className='stat-val green';
+    document.getElementById('st-dist').textContent='台風なし'; document.getElementById('st-dist').className='stat-val muted';
+    document.getElementById('st-pressure').textContent='-- hPa'; document.getElementById('st-pressure').className='stat-val muted';
+    document.getElementById('st-wind').textContent='-- m/s'; document.getElementById('st-wind').className='stat-val muted';
+    updateGauge(null);
+    setVerdict('standby','📡','台風未発生 — 発生次第、自動検出','現在、鹿児島に脅威となる台風は発生していません。6時間ごとに監視し、発生次第リアルタイムで追跡します。','현재 가고시마를 위협하는 태풍은 없습니다. 6시간마다 감시하며 발생 즉시 실시간 추적을 시작합니다');
+    setAlert('info','台風未発生 — 6時間ごとに自動監視継続中','태풍이 아직 발생하지 않아 6시간마다 자동으로 감시를 계속하고 있습니다');
+    return;
+  }
+
+  typhoons.sort((a,b)=>a.dist-b.dist);
+  const n=typhoons[0];
+  document.getElementById('st-count').textContent=typhoons.length+'個';
+  document.getElementById('st-dist').textContent=n.dist.toLocaleString()+' km';
+  document.getElementById('st-pressure').textContent=n.pressure!=='--'?n.pressure+' hPa':'-- hPa';
+  document.getElementById('st-wind').textContent=n.wind!=='--'?n.wind+' m/s':'-- m/s';
+  const dc=n.dist<DANGER_KM?'red':n.dist<WARN_KM?'yellow':'blue';
+  document.getElementById('st-dist').className='stat-val '+dc;
+  document.getElementById('st-count').className='stat-val '+dc;
+  document.getElementById('st-pressure').className='stat-val';
+  document.getElementById('st-wind').className='stat-val';
+  updateGauge(n.dist);
+
+  list.innerHTML=typhoons.map(t=>{
+    const cls=t.dist<DANGER_KM?'close':t.dist<WARN_KM?'medium':'';
+    const badge=t.dist<DANGER_KM?`<span class="dist-badge dist-close">🔴 直撃圏内 (직격권)</span>`:t.dist<WARN_KM?`<span class="dist-badge dist-medium">🟡 接近圏内 (접근권)</span>`:`<span class="dist-badge dist-far">🔵 北上中 (북상 중)</span>`;
+    return `<div class="typhoon-item ${cls}"><div class="typhoon-name">${t.name}${badge}</div><div class="typhoon-meta">位置 (위치): ${t.lat.toFixed(1)}°N / ${t.lon.toFixed(1)}°E<br>鹿児島まで (가고시마까지): <strong style="color:var(--text);font-size:13px;">${t.dist.toLocaleString()} km</strong><br>${t.pressure!=='--'?`中心気圧: ${t.pressure} hPa　`:''}${t.wind!=='--'?`最大風速: ${t.wind} m/s`:''}</div></div>`;
+  }).join('');
+
+  if(n.dist<DANGER_KM){
+    setVerdict('danger','🔴','⚠ 上陸危険！ 直撃圏に接近中',`${n.name}が鹿児島の直撃圏(200km以内)に入りました。気象庁の最新情報・避難指示に今すぐ従ってください。`,`${n.name}이 가고시마 직격권(200km 이내)에 진입했습니다. 즉시 기상청 최신 정보와 피난 지시에 따라 주세요`);
+    setAlert('critical',`直撃警報: ${n.name}が鹿児島への上陸コースに入りました`,`${n.name}이 가고시마 상륙 코스에 진입했습니다. 즉시 기상청 공식 사이트를 확인해 주세요`);
+  }else if(n.dist<WARN_KM){
+    setVerdict('warning','🟡','注意！ 接近圏内に台風あり',`${n.name}が鹿児島から${n.dist.toLocaleString()}kmの位置にあります。6月27日に向けてさらなる接近の可能性があります。最新進路を注視してください。`,`${n.name}이 가고시마로부터 ${n.dist.toLocaleString()}km 위치에 있습니다. 6월 27일을 향해 추가 접근 가능성이 있으니 최신 진로를 주시해 주세요`);
+    setAlert('caution',`接近警戒: ${n.name}が${n.dist.toLocaleString()}km先で接近中`,`${n.name}이 ${n.dist.toLocaleString()}km 앞에서 접근 중입니다. 진로에 따라 직격 가능성이 있습니다`);
+  }else{
+    setVerdict('tracking','🔵','北上中の台風を追跡中',`現在、${n.name}は鹿児島から${n.dist.toLocaleString()}kmの位置で北上中です。6月27日までの進路を継続監視します。`,`현재 ${n.name}이 가고시마로부터 ${n.dist.toLocaleString()}km 위치에서 북상 중입니다. 6월 27일까지의 진로를 계속 감시합니다`);
+    setAlert('info',`追跡中: ${n.name}が${n.dist.toLocaleString()}km先で北上中 — 6時間ごとに進路を自動監視`,`${n.name}이 ${n.dist.toLocaleString()}km 앞에서 북상 중. 6시간마다 자동으로 감시합니다`);
+  }
+}
+
+function updateSourceStatus(results){
+  const src=document.getElementById('source-status');
+  src.innerHTML=results.map(r=>`${r.ok?'✅':'❌'} ${r.name}: ${r.ok?'取得成功 (취득 성공)':'取得失敗 (취득 실패)'}`).join('<br>');
+}
+
+async function fetchAll(){
+  document.getElementById('typhoon-list').innerHTML=`<div style="color:var(--muted);font-size:12px;padding:10px 0;text-align:center;"><span class="spinner"></span>取得中… (데이터를 가져오고 있습니다)</div>`;
+
+  const result=await fetchTyphoonJSON();
+
+  if(!result.ok||!result.data){
+    updateSourceStatus([{name:'typhoon.json (GitHub Actions)',ok:false}]);
+    document.getElementById('typhoon-list').innerHTML=`<div style="text-align:center;padding:16px 0;color:var(--danger);font-size:12px;">
+      ❌ typhoon.json の読み込みに失敗しました。<br>
+      GitHub Actions が正常に実行されているか確認してください。<br>
+      <span style="font-size:10px;color:var(--muted);">(typhoon.json 읽기 실패. GitHub Actions 실행 상태를 확인해 주세요)</span>
+    </div>`;
+    return;
+  }
+
+  const data=result.data;
+  updateSourceStatus([
+    {name:`typhoon.json — 最終更新: ${data.updated_jst||'--'} (최종 갱신)`, ok:true},
+    {name:`JMA 気象庁`, ok:data.sources?.jma||false},
+    {name:`NOAA NHC`,   ok:data.sources?.nhc||false},
+  ]);
+
+  renderTyphoons(data.typhoons||[]);
+  setLastUpdate();
+}
+
+updateCountdown();
+setInterval(updateCountdown,1000);
+buildTimeline([]);
+fetchAll();
+setInterval(fetchAll,6*60*60*1000);
+</script>
+</body>
+</html>
