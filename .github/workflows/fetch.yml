@@ -15,51 +15,40 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Fetch JMA, NHC, JTWC data
+      - name: Fetch typhoon data from multiple sources
         run: |
-          # JMA 태풍 API
+          # 1. JMA bosai API
           curl -s -o /tmp/jma.json \
             -H "User-Agent: Mozilla/5.0" \
             "https://www.jma.go.jp/bosai/typhoon/data/index.json" \
-            --max-time 30 || echo "JMA failed"
+            --max-time 20 || true
 
-          # JTWC 서태평양 현황 텍스트 (wp = western pacific)
-          curl -s -o /tmp/jtwc_wp.txt \
-            -H "User-Agent: Mozilla/5.0" \
-            "https://www.metoc.navy.mil/jtwc/products/wp9026web.txt" \
-            --max-time 30 || echo "JTWC wp failed"
-
-          # JTWC active storms 목록
-          curl -s -o /tmp/jtwc_rss.xml \
-            -H "User-Agent: Mozilla/5.0" \
-            "https://www.metoc.navy.mil/jtwc/rss/jtwc.rss" \
-            --max-time 30 || echo "JTWC rss failed"
-
-          # 한국 기상청 태풍 페이지
-          curl -s -o /tmp/kma.html \
-            -H "User-Agent: Mozilla/5.0" \
-            "https://www.weather.go.kr/w/typhoon/typhoon-list.do" \
-            --max-time 30 || echo "KMA failed"
-
-          # 한국 기상청 태풍 상세 API
-          curl -s -o /tmp/kma_detail.json \
-            -H "User-Agent: Mozilla/5.0" \
-            "https://www.weather.go.kr/w/typhoon/typhoon-list.do?typ=1" \
-            --max-time 30 || echo "KMA detail failed"
-            -H "User-Agent: Mozilla/5.0" \
-            "https://www.nhc.noaa.gov/index-at.xml" \
-            --max-time 30 || echo "NHC failed"
-
-          # RSMC Tokyo 태풍 정보 페이지
-          curl -s -o /tmp/rsmc.html \
+          # 2. JMA 영문 태풍 페이지 (HTML)
+          curl -s -o /tmp/jma_en.html \
             -H "User-Agent: Mozilla/5.0" \
             "https://www.jma.go.jp/en/typh/" \
-            --max-time 30 || echo "RSMC failed"
+            --max-time 20 || true
+
+          # 3. JTWC warning text (서태평양 09W, 10W 등 순서대로 시도)
+          for num in 09 10 11 08 07 12; do
+            curl -s -o /tmp/jtwc_${num}.txt \
+              -H "User-Agent: Mozilla/5.0" \
+              "https://www.metoc.navy.mil/jtwc/products/wp${num}26web.txt" \
+              --max-time 15 || true
+          done
+
+          # 4. 한국 기상청 태풍 정보 페이지
+          curl -s -o /tmp/kma.html \
+            -H "User-Agent: Mozilla/5.0" \
+            "https://www.weather.go.kr/w/typhoon/typhoon-main.do" \
+            --max-time 20 || true
+
+          echo "Fetch complete"
 
       - name: Parse and save typhoon.json
         run: |
           python3 << 'PYEOF'
-          import json, re, math, os
+          import json, re, math, os, glob
           from datetime import datetime, timezone, timedelta
 
           KAGOSHIMA = (31.6, 130.56)
@@ -71,8 +60,8 @@ jobs:
               a = math.sin(dL/2)**2 + math.cos(math.radians(la1)) * math.cos(math.radians(la2)) * math.sin(dO/2)**2
               return round(R * 2 * math.asin(math.sqrt(a)))
 
-          def is_dup(typhoons, lat, lon, threshold=2.0):
-              return any(abs(t['lat']-lat) < threshold and abs(t['lon']-lon) < threshold for t in typhoons)
+          def is_dup(lst, lat, lon):
+              return any(abs(t['lat']-lat) < 2.0 and abs(t['lon']-lon) < 2.0 for t in lst)
 
           typhoons = []
           sources = {}
@@ -83,6 +72,7 @@ jobs:
               if raw and raw[0] in '[{':
                   data = json.loads(raw)
                   arr = data if isinstance(data, list) else data.get('typhoon', data.get('data', []))
+                  cnt = 0
                   for t in arr:
                       if not t: continue
                       lat = float(t.get('lat') or t.get('latitude') or 0)
@@ -97,97 +87,115 @@ jobs:
                           'pressure': str(t.get('pressure') or t.get('centralPressure') or '--'),
                           'wind': str(t.get('wind') or t.get('maxWind') or '--'),
                       })
+                      cnt += 1
                   sources['jma'] = True
-                  print(f"JMA OK: {len(typhoons)} typhoons")
+                  print(f"JMA API: {cnt} typhoons")
               else:
                   sources['jma'] = False
-                  print(f"JMA: empty response (태풍 없음 또는 API 응답 없음)")
+                  print("JMA API: empty (no active typhoon in JMA system)")
           except Exception as e:
               sources['jma'] = False
-              print(f"JMA error: {e}")
+              print(f"JMA API error: {e}")
 
-          # ── 2. RSMC Tokyo HTML 파싱 (JMA 공식 영문 태풍 페이지) ──
-          try:
-              html = open('/tmp/rsmc.html').read()
-              # 위치 패턴: "14.5N 143.2E" 형식
-              matches = re.findall(
-                  r'(?:TROPICAL STORM|TYPHOON|DEPRESSION|TD|TS|T\.S\.|TY)[^\n]*?([A-Z]{3,})[^\n]*?'
-                  r'(\d+\.?\d*)[°\s]*N[,\s]+(\d+\.?\d*)[°\s]*E', html, re.I)
-              rsmc_count = 0
-              for m in matches:
-                  name, lat_s, lon_s = m
-                  lat, lon = float(lat_s), float(lon_s)
+          # ── 2. JTWC 텍스트 advisory 파싱 ──
+          jtwc_found = 0
+          for fpath in glob.glob('/tmp/jtwc_*.txt'):
+              try:
+                  txt = open(fpath).read()
+                  if len(txt) < 100: continue
+                  if not re.search(r'(?:TYPHOON|TROPICAL STORM|DEPRESSION|WARNING)', txt, re.I): continue
+
+                  # 위치 파싱 - JTWC 형식: "POSITION: 14.5N 143.2E"
+                  la = re.search(r'(?:POSITION[:\s]+|LAT[:\s]+)(\d+\.?\d*)\s*N', txt, re.I)
+                  lo = re.search(r'(?:POSITION[:\s]+.*?|LON[:\s]+)(\d+\.?\d*)\s*E', txt, re.I)
+
+                  # 대안 형식: "13.2N 143.5E" 직접 등장
+                  if not la:
+                      la = re.search(r'(\d+\.?\d*)\s*N\s+(\d+\.?\d*)\s*E', txt)
+                      if la:
+                          lo_val = la.group(2)
+                          la_val = la.group(1)
+                          la = type('m', (), {'group': lambda self,x: la_val if x==1 else lo_val})()
+                          lo = type('m', (), {'group': lambda self,x: lo_val})()
+
+                  if not la or not lo: continue
+                  lat = float(la.group(1) if hasattr(la, 'group') else la)
+                  lon_str = lo.group(1) if hasattr(lo, 'group') else lo
+                  lon = float(lon_str)
+
                   if not (0 <= lat <= 45 and 100 <= lon <= 180): continue
                   if is_dup(typhoons, lat, lon): continue
+
+                  # 이름
+                  nm = re.search(r'(?:TYPHOON|TROPICAL STORM|TD|TS)\s+([A-Z]{3,})', txt)
+                  name = nm.group(1) if nm else os.path.basename(fpath).replace('.txt','').upper()
+
+                  # 기압/풍속
+                  pm = re.search(r'(\d{3,4})\s*MB', txt, re.I)
+                  wm = re.search(r'MAX(?:IMUM)?\s+(?:SUSTAINED\s+)?WINDS?\s+(\d+)\s*(?:KT|KNOTS?)', txt, re.I)
+                  pressure = pm.group(1) if pm else '--'
+                  wind_ms = str(round(int(wm.group(1)) * 0.5144, 1)) if wm else '--'
+
                   typhoons.append({
-                      'source': 'RSMC',
+                      'source': 'JTWC',
+                      'name': name,
+                      'lat': round(lat,1), 'lon': round(lon,1),
+                      'dist': haversine(KAGOSHIMA[0], KAGOSHIMA[1], lat, lon),
+                      'pressure': pressure, 'wind': wind_ms,
+                  })
+                  jtwc_found += 1
+                  print(f"JTWC {os.path.basename(fpath)}: {name} at {lat}N {lon}E")
+              except Exception as e:
+                  print(f"JTWC {fpath} error: {e}")
+          sources['jtwc'] = jtwc_found > 0
+          print(f"JTWC total: {jtwc_found} added")
+
+          # ── 3. JMA 영문 HTML 파싱 ──
+          try:
+              html = open('/tmp/jma_en.html', encoding='utf-8', errors='ignore').read()
+              # JMA 영문 페이지의 태풍 위치 테이블 파싱
+              # 패턴: 숫자N 숫자E (예: 14.5N 143.2E)
+              matches = re.findall(r'(\d+\.?\d*)\s*N\s*[,\s]\s*(\d+\.?\d*)\s*E', html)
+              jma_en_count = 0
+              for lat_s, lon_s in matches:
+                  lat, lon = float(lat_s), float(lon_s)
+                  if not (5 <= lat <= 40 and 110 <= lon <= 175): continue
+                  if is_dup(typhoons, lat, lon): continue
+                  # 주변 텍스트에서 이름 찾기
+                  idx = html.find(lat_s)
+                  ctx = html[max(0,idx-200):idx+100]
+                  nm = re.search(r'(?:TYPHOON|TROPICAL STORM|T\.S\.|T\.D\.)\s+([A-Z]{3,})', ctx, re.I)
+                  name = nm.group(1) if nm else 'JMA System'
+                  typhoons.append({
+                      'source': 'JMA_EN',
                       'name': name,
                       'lat': round(lat,1), 'lon': round(lon,1),
                       'dist': haversine(KAGOSHIMA[0], KAGOSHIMA[1], lat, lon),
                       'pressure': '--', 'wind': '--',
                   })
-                  rsmc_count += 1
-              sources['rsmc'] = True
-              print(f"RSMC HTML OK: {rsmc_count} added")
+                  jma_en_count += 1
+                  if jma_en_count >= 5: break
+              sources['jma_en'] = True
+              print(f"JMA EN HTML: {jma_en_count} added")
           except Exception as e:
-              sources['rsmc'] = False
-              print(f"RSMC error: {e}")
+              sources['jma_en'] = False
+              print(f"JMA EN error: {e}")
 
-          # ── 3. JTWC RSS XML 파싱 ──
-          try:
-              xml = open('/tmp/jtwc_rss.xml').read()
-              items = re.findall(r'<item>(.*?)</item>', xml, re.DOTALL)
-              jtwc_count = 0
-              for item in items:
-                  title = (re.search(r'<title>(.*?)</title>', item) or re.search(r'','')).group(1) if re.search(r'<title>(.*?)</title>', item) else ''
-                  desc  = (re.search(r'<description>(.*?)</description>', item, re.DOTALL) or re.search(r'','')).group(1) if re.search(r'<description>(.*?)</description>', item, re.DOTALL) else ''
-                  text  = title + ' ' + desc
-                  if not re.search(r'WARNING|ADVISORY|TYPHOON|TROPICAL|DEPRESSION', text, re.I): continue
-                  # 위치 파싱
-                  la = re.search(r'(\d+\.?\d*)\s*N', text)
-                  lo = re.search(r'(\d+\.?\d*)\s*E', text)
-                  if not la or not lo: continue
-                  lat, lon = float(la.group(1)), float(lo.group(1))
-                  if not (0 <= lat <= 45 and 100 <= lon <= 180): continue
-                  if is_dup(typhoons, lat, lon): continue
-                  # 이름
-                  nm = re.search(r'(?:TYPHOON|TROPICAL STORM|TD|TS|TY)\s+([A-Z]+)', text)
-                  name = nm.group(1) if nm else re.sub(r'\s*(WARNING|ADVISORY).*','',title,flags=re.I).strip()
-                  # 기압/풍속
-                  pm = re.search(r'(\d{3,4})\s*MB', text, re.I)
-                  wm = re.search(r'(\d+)\s*(?:KT|KNOTS?)', text, re.I)
-                  pressure = pm.group(1) if pm else '--'
-                  wind = str(round(int(wm.group(1))*0.514, 1)) if wm else '--'
-                  typhoons.append({
-                      'source': 'JTWC',
-                      'name': name or 'WP System',
-                      'lat': round(lat,1), 'lon': round(lon,1),
-                      'dist': haversine(KAGOSHIMA[0], KAGOSHIMA[1], lat, lon),
-                      'pressure': pressure, 'wind': wind,
-                  })
-                  jtwc_count += 1
-              sources['jtwc'] = True
-              print(f"JTWC RSS OK: {jtwc_count} added")
-          except Exception as e:
-              sources['jtwc'] = False
-              print(f"JTWC error: {e}")
-
-          # ── 4. 한국 기상청 태풍 HTML 파싱 ──
+          # ── 4. 한국 기상청 HTML 파싱 ──
           try:
               html = open('/tmp/kma.html', encoding='utf-8', errors='ignore').read()
-              # 위도/경도 패턴 찾기
-              # 예: "14.5°N 143.2°E" 또는 "14.5N 143.2E"
-              pattern = re.findall(
-                  r'(\d+\.?\d*)\s*°?\s*[Nn]\s*[,/\s]\s*(\d+\.?\d*)\s*°?\s*[Ee]',
-                  html)
+              # 위도/경도 패턴
+              matches = re.findall(r'(\d+\.?\d*)\s*°?\s*N[,\s/]+(\d+\.?\d*)\s*°?\s*E', html)
               kma_count = 0
-              for lat_s, lon_s in pattern:
+              for lat_s, lon_s in matches:
                   lat, lon = float(lat_s), float(lon_s)
-                  if not (0 <= lat <= 45 and 100 <= lon <= 180): continue
+                  if not (5 <= lat <= 40 and 110 <= lon <= 175): continue
                   if is_dup(typhoons, lat, lon): continue
-                  # 이름 추출 (메칼라 등)
-                  nm = re.search(r'메칼라|MEKKHALA|MEKHALA|제\s*7\s*호', html, re.I)
-                  name = 'MEKKHALA' if nm else 'KMA System'
+                  # 이름 감지
+                  if re.search(r'메칼라|MEKKHALA|MEKHALA', html, re.I):
+                      name = 'MEKKHALA'
+                  else:
+                      name = 'KMA System'
                   typhoons.append({
                       'source': 'KMA',
                       'name': name,
@@ -196,69 +204,14 @@ jobs:
                       'pressure': '--', 'wind': '--',
                   })
                   kma_count += 1
-                  if kma_count >= 3: break  # 최대 3개
+                  if kma_count >= 3: break
               sources['kma'] = True
-              print(f"KMA OK: {kma_count} added")
+              print(f"KMA: {kma_count} added")
           except Exception as e:
               sources['kma'] = False
               print(f"KMA error: {e}")
 
-          # ── 5. NHC (대서양 백업) ──
-          try:
-              txt = open('/tmp/jtwc_wp.txt').read()
-              if 'LAT' in txt and 'LON' in txt:
-                  la = re.search(r'LAT[:\s]+(\d+\.?\d*)[Nn]', txt)
-                  lo = re.search(r'LON[:\s]+(\d+\.?\d*)[Ee]', txt)
-                  if la and lo:
-                      lat, lon = float(la.group(1)), float(lo.group(1))
-                      if 0 <= lat <= 45 and 100 <= lon <= 180 and not is_dup(typhoons, lat, lon):
-                          nm = re.search(r'(?:TYPHOON|TROPICAL STORM|TD)\s+([A-Z]+)', txt)
-                          pm = re.search(r'(\d{3,4})\s*MB', txt)
-                          wm = re.search(r'MAX SUSTAINED WINDS\s+(\d+)\s*KT', txt)
-                          typhoons.append({
-                              'source': 'JTWC_TXT',
-                              'name': nm.group(1) if nm else 'WP System',
-                              'lat': round(lat,1), 'lon': round(lon,1),
-                              'dist': haversine(KAGOSHIMA[0], KAGOSHIMA[1], lat, lon),
-                              'pressure': pm.group(1) if pm else '--',
-                              'wind': str(round(int(wm.group(1))*0.514,1)) if wm else '--',
-                          })
-                          print(f"JTWC TXT: 1 added")
-                      sources['jtwc_txt'] = True
-          except Exception as e:
-              sources['jtwc_txt'] = False
-              print(f"JTWC TXT error: {e}")
-
-          # ── 5. NHC (대서양 백업) ──
-          try:
-              xml = open('/tmp/nhc.xml').read()
-              items = re.findall(r'<item>(.*?)</item>', xml, re.DOTALL)
-              nhc_count = 0
-              for item in items:
-                  tm = re.search(r'<title>(.*?)</title>', item)
-                  dm = re.search(r'<description>(.*?)</description>', item, re.DOTALL)
-                  if not tm or not dm: continue
-                  if not re.search(r'typhoon|tropical|storm|depression', tm.group(1), re.I): continue
-                  la = re.search(r'([\d.]+)\s*[Nn]', dm.group(1))
-                  lo = re.search(r'([\d.]+)\s*[Ee]', dm.group(1))
-                  if not la or not lo: continue
-                  lat, lon = float(la.group(1)), float(lo.group(1))
-                  if not (100 <= lon <= 180): continue
-                  if is_dup(typhoons, lat, lon): continue
-                  typhoons.append({
-                      'source': 'NHC',
-                      'name': re.sub(r'\s*advisory.*','',tm.group(1),flags=re.I).strip(),
-                      'lat': round(lat,1), 'lon': round(lon,1),
-                      'dist': haversine(KAGOSHIMA[0], KAGOSHIMA[1], lat, lon),
-                      'pressure': '--', 'wind': '--',
-                  })
-                  nhc_count += 1
-              sources['nhc'] = True
-              print(f"NHC OK: {nhc_count} added")
-          except Exception as e:
-              sources['nhc'] = False
-              print(f"NHC error: {e}")
-
+          # ── 결과 저장 ──
           now_utc = datetime.now(timezone.utc)
           now_jst = now_utc + timedelta(hours=9)
 
@@ -273,10 +226,9 @@ jobs:
           with open('typhoon.json', 'w', encoding='utf-8') as f:
               json.dump(output, f, ensure_ascii=False, indent=2)
 
-          print(f"\n✅ Saved typhoon.json — {len(typhoons)} typhoons")
-          if typhoons:
-              for t in typhoons:
-                  print(f"  → {t['name']} ({t['source']}) lat:{t['lat']} lon:{t['lon']} dist:{t['dist']}km")
+          print(f"\n✅ typhoon.json saved — {len(typhoons)} typhoons total")
+          for t in typhoons:
+              print(f"  🌀 {t['name']} ({t['source']}) {t['lat']}N {t['lon']}E → 가고시마 {t['dist']}km")
           PYEOF
 
       - name: Commit typhoon.json
@@ -285,7 +237,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add typhoon.json
           if git diff --staged --quiet; then
-            echo "No changes"
+            echo "No changes to commit"
           else
             git commit -m "Update typhoon.json $(date -u '+%Y-%m-%d %H:%M UTC')"
             git push
