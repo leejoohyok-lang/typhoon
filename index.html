@@ -305,6 +305,19 @@
       </div>
       <div class="prob-detail" id="prob-detail">--</div>
     </div>
+
+    <!-- ✈️ 항공편 영향 가능성 -->
+    <div style="background:var(--bg3);border-radius:10px;padding:12px 14px;margin-bottom:10px;border-left:3px solid var(--warn);">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;letter-spacing:1px;">✈️ 航空便への影響可能性 (항공편 영향 가능성)</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:22px;font-weight:700;" id="flight-pct">--%</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;" id="flight-label">--</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);text-align:right;line-height:1.7;" id="flight-detail">--</div>
+      </div>
+    </div>
+
     <div class="prob-bar-wrap">
       <div class="prob-bar-label"><span>🔴 鹿児島に直接上陸 (직접 상륙)</span><span id="p1">--%</span></div>
       <div class="prob-bar"><div class="prob-bar-fill fill-red" id="pb1" style="width:0%"></div></div>
@@ -460,6 +473,27 @@ function renderProbCard(typhoons){
     `方位: ${p.dirName}<br>` +
     `<span style="font-size:10px;">(거리·방향 기반 실시간 산출)</span>`;
 
+  // 항공편 영향 가능성 = 직접 상륙 + 규슈 서안 (둘 다 가고시마 영향권)
+  const flightRisk = p.hitProb + p.westProb;
+  const flightEl = document.getElementById('flight-pct');
+  const flightLabel = document.getElementById('flight-label');
+  const flightDetail = document.getElementById('flight-detail');
+
+  flightEl.textContent = flightRisk + '%';
+  if(flightRisk >= 60){
+    flightEl.style.color = 'var(--danger)';
+    flightLabel.textContent = '欠航の可能性が高い (결항 가능성 높음)';
+    flightDetail.innerHTML = '直接上陸または九州西岸上陸の<br>場合、鹿児島空港に強風影響あり<br>(직접 상륙·규슈 서안 상륙 모두<br>가고시마 항공편 영향권)';
+  } else if(flightRisk >= 35){
+    flightEl.style.color = 'var(--warn)';
+    flightLabel.textContent = '欠航の可能性あり (결항 가능성 있음)';
+    flightDetail.innerHTML = '進路次第で鹿児島空港に影響。<br>26日の予報を要確認<br>(26일 예보 확인 필수)';
+  } else {
+    flightEl.style.color = 'var(--safe)';
+    flightLabel.textContent = '現時点では影響少 (현재 영향 적음)';
+    flightDetail.innerHTML = '東方転向の可能性が高く<br>現時点では欠航リスク低め<br>(현재 결항 리스크 낮음)';
+  }
+
   // 막대 그래프
   const bars = [
     {id:'p1', bar:'pb1', val:p.hitProb},
@@ -485,6 +519,15 @@ function buildTimeline(typhoons){
   const nearest=typhoons.length>0?typhoons.slice().sort((a,b)=>a.dist-b.dist)[0]:null;
   function dayState(m,d){const n=m*100+d;return n<todayNum?'done':n===todayNum?'active':'future';}
 
+  // 실시간 확률값 (태풍 있으면 계산, 없으면 기본값)
+  const prob = nearest ? calcLandingProb(nearest) : null;
+  const p1 = prob ? prob.hitProb : 20;
+  const p2 = prob ? prob.westProb : 30;
+  const p3 = prob ? prob.eastProb : 35;
+  const p4 = prob ? prob.weakProb : 15;
+  const flightRisk = p1 + p2;
+  const probTag = prob ? ' <span style="font-size:9px;color:var(--accent);border:1px solid rgba(56,189,248,0.3);border-radius:4px;padding:1px 5px;">LIVE</span>' : '';
+
   const steps=[
     {m:6,d:19,
       jaDate:'6月19日',krDate:'6월 19일',
@@ -494,23 +537,30 @@ function buildTimeline(typhoons){
     },
     {m:6,d:22,
       jaDate:'6月22〜23日',krDate:'6월 22~23일',
-      jaDone:'フィリピン東方で台風発生可能性があった時期。',krDone:'필리핀 동쪽 해상에서 태풍 발생 가능성이 있었던 시기입니다.',
+      jaDone:'フィリピン東方で台風が発生した時期。',krDone:'필리핀 동쪽 해상에서 태풍이 발생했습니다.',
       jaActive:'フィリピン東方付近の発生兆候を監視中。',krActive:'필리핀 동쪽 부근 발생 징후를 감시 중입니다.',
       jaFuture:'フィリピン東方で台風発生が予想される時期。',krFuture:'필리핀 동쪽에서 태풍 발생이 예상되는 시기입니다.'
     },
     {m:6,d:24,
       jaDate:'6月24〜25日',krDate:'6월 24~25일',
-      jaDone:'台風が北上し沖縄〜奄美方面へ接近した可能性がある時期。',krDone:'태풍이 북상하여 오키나와·아마미 방면으로 접근 가능성이 있었던 시기입니다.',
+      jaDone:'台風が北上し沖縄〜奄美方面へ接近した時期。',krDone:'태풍이 북상하여 오키나와·아마미 방면으로 접근한 시기입니다.',
       jaActive:'台風が北上中かを確認中。沖縄〜奄美方面への接近を監視。',krActive:'태풍 북상 여부 확인 중. 오키나와·아마미 방면 접근을 감시 중입니다.',
-      jaFuture:`<span style="color:var(--text);font-weight:600;">接近シナリオ別確率</span><br>🔴 直接北上し接近: <strong style="color:var(--warn);">約35%</strong><br>🟡 奄美付近を通過: <strong style="color:var(--accent);">約40%</strong><br>🟢 東方海上を通過: <strong style="color:var(--safe);">約25%</strong>`,
-      krFuture:'진로는 아직 확정되지 않았으며 시나리오별 확률로 감시 중입니다.'
+      jaFuture:`<span style="color:var(--text);font-weight:600;">接近シナリオ別確率${probTag}</span><br>🔴 直接北上し接近: <strong style="color:var(--warn);">${p1+p2}%</strong><br>🔵 東方海上を通過: <strong style="color:var(--safe);">${p3+p4}%</strong>`,
+      krFuture:'진로는 아직 확정되지 않았으며 실시간 확률로 감시 중입니다.'
     },
     {m:6,d:26,
       jaDate:'6月26日',krDate:'6월 26일',
       jaDone:'進路の重要分岐点。偏西風との相互作用で進路が決まった時期。',krDone:'진로의 중요 분기점. 편서풍 상호작용으로 진로가 결정된 시기입니다.',
       jaActive:'今日が進路の重要分岐点。偏西風との相互作用で北東転向するかを確認中。',krActive:'오늘이 진로의 중요 분기점. 편서풍 상호작용으로 북동 전향 여부를 확인 중입니다.',
-      jaFuture:`<span style="color:var(--text);font-weight:600;">鹿児島上陸シナリオ別確率</span><br>🔴 鹿児島に直接上陸: <strong style="color:var(--danger);">約20%</strong><br>🟡 九州西岸〜熊本に上陸: <strong style="color:var(--warn);">約30%</strong><br>🟢 東方へ転向し太平洋側へ: <strong style="color:var(--safe);">約35%</strong><br>⚪ 温帯低気圧に変化: <strong style="color:var(--muted);">約15%</strong>`,
-      krFuture:'진로 확정 분기점. 가고시마 상륙 가능성을 시나리오별로 감시합니다.'
+      jaFuture:`<span style="color:var(--text);font-weight:600;">鹿児島上陸シナリオ別確率${probTag}</span><br>
+        🔴 鹿児島に直接上陸: <strong style="color:var(--danger);">${p1}%</strong><br>
+        🟡 九州西岸〜熊本に上陸: <strong style="color:var(--warn);">${p2}%</strong><br>
+        🔵 東方へ転向し太平洋側へ: <strong style="color:var(--safe);">${p3}%</strong><br>
+        ⚪ 温帯低気圧に変化: <strong style="color:var(--muted);">${p4}%</strong><br>
+        <span style="margin-top:4px;display:inline-block;padding:4px 8px;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:6px;color:var(--warn);font-size:10px;">
+          ✈️ 航空便影響リスク (항공편 영향 리스크): <strong>${flightRisk}%</strong>
+        </span>`,
+      krFuture:`진로 확정 분기점. 가고시마+규슈 서안 상륙 합산 항공편 영향 리스크: ${flightRisk}%`
     },
     {m:6,d:27,
       jaDate:'6月27日 🎯',krDate:'6월 27일',
