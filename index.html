@@ -177,6 +177,31 @@
   }
   .refresh-btn:active { transform:scale(0.97); background:rgba(56,189,248,0.22); }
 
+  /* ── 상륙 확률 카드 ── */
+  .prob-card { background:var(--bg2); border:1px solid var(--border); border-radius:16px; padding:16px 14px; margin-bottom:12px; }
+  .prob-title { font-size:10px; font-weight:600; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-bottom:12px; }
+  .prob-main {
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--bg3); border-radius:12px; padding:14px;
+    margin-bottom:10px;
+  }
+  .prob-pct-wrap { display:flex; flex-direction:column; align-items:center; }
+  .prob-pct { font-size:42px; font-weight:700; line-height:1; }
+  .prob-pct.low    { color:var(--safe); }
+  .prob-pct.medium { color:var(--warn); }
+  .prob-pct.high   { color:var(--danger); }
+  .prob-pct-label { font-size:10px; color:var(--muted); margin-top:3px; }
+  .prob-detail { flex:1; padding-left:14px; font-size:11px; color:var(--muted); line-height:1.9; }
+  .prob-bar-wrap { margin-bottom:8px; }
+  .prob-bar-label { display:flex; justify-content:space-between; font-size:10px; color:var(--muted); margin-bottom:3px; }
+  .prob-bar { height:5px; background:var(--bg3); border-radius:3px; overflow:hidden; margin-bottom:6px; }
+  .prob-bar-fill { height:100%; border-radius:3px; transition:width 0.8s ease; }
+  .fill-red    { background:var(--danger); }
+  .fill-yellow { background:var(--warn); }
+  .fill-blue   { background:var(--accent); }
+  .fill-gray   { background:var(--muted); }
+  .prob-basis { font-size:9px; color:var(--muted); margin-top:8px; padding-top:8px; border-top:1px solid var(--border); line-height:1.6; opacity:0.8; }
+
   /* ── 스피너 ── */
   .spinner { display:inline-block; width:13px; height:13px; border:2px solid rgba(56,189,248,0.2); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; vertical-align:-2px; margin-right:4px; }
   @keyframes spin { to { transform:rotate(360deg); } }
@@ -223,7 +248,7 @@
 
   <!-- 카운트다운 -->
   <div class="countdown">
-    <div class="cd-label">⏱ 警戒日 6月27日 まで (경계일 6월 27일까지) · 次回更新 6時間後</div>
+    <div class="cd-label">⏱ 警戒日 6月27日 まで (경계일 6월 27일까지) · 次回更新 3時間後</div>
     <div class="cd-units">
       <div class="cd-unit"><span class="cd-num" id="cd-d">--</span><div class="cd-lbl">日 (일)</div></div>
       <div class="cd-unit"><span class="cd-num" id="cd-h">--</span><div class="cd-lbl">時間 (시간)</div></div>
@@ -268,6 +293,29 @@
   <div class="section-card">
     <div class="section-head">📅 監視タイムライン (감시 타임라인)</div>
     <div id="timeline"></div>
+  </div>
+
+  <!-- 상륙 확률 카드 -->
+  <div class="prob-card" id="prob-card" style="display:none;">
+    <div class="prob-title">🎯 鹿児島上陸確率リアルタイム算出 (가고시마 상륙 확률 실시간 계산)</div>
+    <div class="prob-main">
+      <div class="prob-pct-wrap">
+        <div class="prob-pct low" id="prob-pct">--%</div>
+        <div class="prob-pct-label">上陸確率 (상륙 확률)</div>
+      </div>
+      <div class="prob-detail" id="prob-detail">--</div>
+    </div>
+    <div class="prob-bar-wrap">
+      <div class="prob-bar-label"><span>🔴 鹿児島に直接上陸 (직접 상륙)</span><span id="p1">--%</span></div>
+      <div class="prob-bar"><div class="prob-bar-fill fill-red" id="pb1" style="width:0%"></div></div>
+      <div class="prob-bar-label"><span>🟡 九州西岸・熊本方面 (규슈 서안·구마모토)</span><span id="p2">--%</span></div>
+      <div class="prob-bar"><div class="prob-bar-fill fill-yellow" id="pb2" style="width:0%"></div></div>
+      <div class="prob-bar-label"><span>🔵 東方転向・太平洋側へ (동쪽 전향)</span><span id="p3">--%</span></div>
+      <div class="prob-bar"><div class="prob-bar-fill fill-blue" id="pb3" style="width:0%"></div></div>
+      <div class="prob-bar-label"><span>⚪ 温帯低気圧に変質 (온대저압부 변질)</span><span id="p4">--%</span></div>
+      <div class="prob-bar"><div class="prob-bar-fill fill-gray" id="pb4" style="width:0%"></div></div>
+    </div>
+    <div class="prob-basis" id="prob-basis">計算根拠: --</div>
   </div>
 
   <!-- 태풍 목록 -->
@@ -326,6 +374,110 @@ function updateCountdown(){
   document.getElementById('cd-h').textContent=String(Math.floor((diff%86400000)/3600000)).padStart(2,'0');
   document.getElementById('cd-m').textContent=String(Math.floor((diff%3600000)/60000)).padStart(2,'0');
   document.getElementById('cd-s').textContent=String(Math.floor((diff%60000)/1000)).padStart(2,'0');
+}
+
+/* ── 가고시마 상륙 확률 계산 ── */
+function calcLandingProb(t){
+  const KAGO = {lat:31.6, lon:130.56};
+
+  // 1) 방위각 계산 (태풍 → 가고시마)
+  const dLat = KAGO.lat - t.lat;
+  const dLon = KAGO.lon - t.lon;
+  const bearing = Math.atan2(dLon, dLat) * 180 / Math.PI; // -180~180, 0=정북
+
+  // 2) 거리 기반 기준 확률 (가까울수록 직격 확률 상승)
+  const dist = t.dist;
+  let baseHit; // 가고시마 직격 기본 확률
+  if(dist < 100)       baseHit = 75;
+  else if(dist < 200)  baseHit = 45;
+  else if(dist < 350)  baseHit = 28;
+  else if(dist < 500)  baseHit = 16;
+  else if(dist < 800)  baseHit = 9;
+  else if(dist < 1200) baseHit = 5;
+  else                 baseHit = 2;
+
+  // 3) 방향 보정 — 가고시마를 향해 직진할수록 확률 상승
+  // bearing이 0(정북)에 가깝고 가고시마가 북서 방향에 있으면 높음
+  // 가고시마는 대부분 태풍에서 봤을 때 북~북서 방향
+  const absBearing = Math.abs(bearing);
+  let dirMult;
+  if(absBearing < 20)       dirMult = 1.8;  // 거의 정면
+  else if(absBearing < 45)  dirMult = 1.4;
+  else if(absBearing < 70)  dirMult = 1.0;
+  else if(absBearing < 100) dirMult = 0.7;
+  else                      dirMult = 0.4;  // 등지고 있음
+
+  // 4) 위도 보정 — 태풍이 너무 남쪽(필리핀 근처)이면 아직 불확실
+  let latMult = 1.0;
+  if(t.lat < 15)       latMult = 0.6; // 너무 남쪽, 진로 불확실
+  else if(t.lat < 20)  latMult = 0.8;
+  else if(t.lat > 28)  latMult = 1.2; // 이미 북상, 진로 더 확실
+
+  const hitProb = Math.min(85, Math.round(baseHit * dirMult * latMult));
+
+  // 5) 나머지 시나리오 배분
+  const remain = 100 - hitProb;
+  // 규슈 서안: 직격 다음으로 가능성 높음
+  const westProb  = Math.round(remain * 0.38);
+  // 동방 전향: 편서풍 전향 가능성
+  const eastProb  = Math.round(remain * 0.42);
+  // 온대저압부: 나머지
+  const weakProb  = 100 - hitProb - westProb - eastProb;
+
+  // 6) 방향명 (가고시마에서 봤을 때 태풍이 어디 있는지)
+  let dirName;
+  if(absBearing < 30)        dirName = '北方向から直進中 (북쪽에서 직진 중)';
+  else if(bearing > 0 && bearing < 90) dirName = '北東方向から接近中 (북동쪽에서 접근 중)';
+  else if(bearing < 0 && bearing > -90) dirName = '北西方向から接近中 (북서쪽에서 접근 중)';
+  else if(absBearing > 120)  dirName = '南方向に位置 (남쪽에 위치)';
+  else                       dirName = '側方向から接近中 (측면에서 접근 중)';
+
+  return {
+    hitProb, westProb, eastProb, weakProb,
+    dist, bearing: Math.round(bearing),
+    dirName,
+    lat: t.lat, lon: t.lon
+  };
+}
+
+function renderProbCard(typhoons){
+  const card = document.getElementById('prob-card');
+  if(!typhoons || typhoons.length === 0){ card.style.display='none'; return; }
+
+  const n = typhoons.slice().sort((a,b)=>a.dist-b.dist)[0];
+  const p = calcLandingProb(n);
+  card.style.display = 'block';
+
+  // 확률 숫자 색상
+  const pctEl = document.getElementById('prob-pct');
+  pctEl.textContent = p.hitProb + '%';
+  pctEl.className = 'prob-pct ' + (p.hitProb >= 40 ? 'high' : p.hitProb >= 15 ? 'medium' : 'low');
+
+  // 상세 설명
+  document.getElementById('prob-detail').innerHTML =
+    `<strong style="color:var(--text);font-size:12px;">${n.name}</strong><br>` +
+    `距離: ${p.dist.toLocaleString()}km<br>` +
+    `方位: ${p.dirName}<br>` +
+    `<span style="font-size:10px;">(거리·방향 기반 실시간 산출)</span>`;
+
+  // 막대 그래프
+  const bars = [
+    {id:'p1', bar:'pb1', val:p.hitProb},
+    {id:'p2', bar:'pb2', val:p.westProb},
+    {id:'p3', bar:'pb3', val:p.eastProb},
+    {id:'p4', bar:'pb4', val:p.weakProb},
+  ];
+  bars.forEach(b=>{
+    document.getElementById(b.id).textContent = b.val + '%';
+    document.getElementById(b.bar).style.width = b.val + '%';
+  });
+
+  // 계산 근거
+  document.getElementById('prob-basis').innerHTML =
+    `計算根拠 (계산 근거): 現在地 ${p.lat.toFixed(1)}°N/${p.lon.toFixed(1)}°E ` +
+    `/ 鹿児島まで ${p.dist.toLocaleString()}km / 方位角 ${p.bearing}° ` +
+    `<br>※ 距離・方位角・緯度から算出した推定値です。気象庁の公式予報とは異なります。` +
+    `<br>(거리·방위각·위도로 산출한 추정값입니다. 기상청 공식 예보와는 다릅니다)`;
 }
 
 function buildTimeline(typhoons){
@@ -432,6 +584,7 @@ async function fetchTyphoonJSON(){
 function renderTyphoons(typhoons){
   const list=document.getElementById('typhoon-list');
   buildTimeline(typhoons);
+  renderProbCard(typhoons);
 
   if(typhoons.length===0){
     list.innerHTML=`<div style="text-align:center;padding:16px 0;color:var(--muted);font-size:12px;"><div style="font-size:28px;margin-bottom:8px;">📡</div>現在、西太平洋に活動中の台風は観測されていません。<br>台風が発生次第、自動で検出・表示されます。<br><span style="font-size:10px;">(현재 서태평양에 활동 중인 태풍은 없습니다. 발생 시 자동 표시됩니다)</span></div>`;
@@ -440,8 +593,8 @@ function renderTyphoons(typhoons){
     document.getElementById('st-pressure').textContent='-- hPa'; document.getElementById('st-pressure').className='stat-val muted';
     document.getElementById('st-wind').textContent='-- m/s'; document.getElementById('st-wind').className='stat-val muted';
     updateGauge(null);
-    setVerdict('standby','📡','台風未発生 — 発生次第、自動検出','現在、鹿児島に脅威となる台風は発生していません。6時間ごとに監視し、発生次第リアルタイムで追跡します。','현재 가고시마를 위협하는 태풍은 없습니다. 6시간마다 감시하며 발생 즉시 실시간 추적을 시작합니다');
-    setAlert('info','台風未発生 — 6時間ごとに自動監視継続中','태풍이 아직 발생하지 않아 6시간마다 자동으로 감시를 계속하고 있습니다');
+    setVerdict('standby','📡','台風未発生 — 発生次第、自動検出','現在、鹿児島に脅威となる台風は発生していません。3時間ごとに監視し、発生次第リアルタイムで追跡します。','현재 가고시마를 위협하는 태풍은 없습니다. 3시간마다 감시하며 발생 즉시 실시간 추적을 시작합니다');
+    setAlert('info','台風未発生 — 3時間ごとに自動監視継続中','태풍이 아직 발생하지 않아 3시간마다 자동으로 감시를 계속하고 있습니다');
     return;
   }
 
@@ -472,7 +625,7 @@ function renderTyphoons(typhoons){
     setAlert('caution',`接近警戒: ${n.name}が${n.dist.toLocaleString()}km先で接近中`,`${n.name}이 ${n.dist.toLocaleString()}km 앞에서 접근 중입니다. 진로에 따라 직격 가능성이 있습니다`);
   }else{
     setVerdict('tracking','🔵','北上中の台風を追跡中',`現在、${n.name}は鹿児島から${n.dist.toLocaleString()}kmの位置で北上中です。6月27日までの進路を継続監視します。`,`현재 ${n.name}이 가고시마로부터 ${n.dist.toLocaleString()}km 위치에서 북상 중입니다. 6월 27일까지의 진로를 계속 감시합니다`);
-    setAlert('info',`追跡中: ${n.name}が${n.dist.toLocaleString()}km先で北上中 — 6時間ごとに進路を自動監視`,`${n.name}이 ${n.dist.toLocaleString()}km 앞에서 북상 중. 6시간마다 자동으로 감시합니다`);
+    setAlert('info',`追跡中: ${n.name}が${n.dist.toLocaleString()}km先で北上中 — 3時間ごとに進路を自動監視`,`${n.name}이 ${n.dist.toLocaleString()}km 앞에서 북상 중. 3시간마다 자동으로 감시합니다`);
   }
 }
 
@@ -511,7 +664,7 @@ updateCountdown();
 setInterval(updateCountdown,1000);
 buildTimeline([]);
 fetchAll();
-setInterval(fetchAll,6*60*60*1000);
+setInterval(fetchAll,3*60*60*1000);
 </script>
 </body>
 </html>
