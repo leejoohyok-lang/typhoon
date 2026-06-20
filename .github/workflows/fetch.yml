@@ -126,9 +126,16 @@ jobs:
                   if not (0 <= lat <= 45 and 100 <= lon <= 180): continue
                   if is_dup(typhoons, lat, lon): continue
 
-                  # 이름
+                  # 이름 파싱 강화
                   nm = re.search(r'(?:TYPHOON|TROPICAL STORM|TD|TS)\s+([A-Z]{3,})', txt)
-                  name = nm.group(1) if nm else os.path.basename(fpath).replace('.txt','').upper()
+                  if not nm:
+                      # "MEKKHALA" 같이 직접 등장하는 경우
+                      nm = re.search(r'\b(MEKKHALA|MEKHALA|SHANSHAN|YAGI|AMPIL|WUKONG)\b', txt, re.I)
+                  name = nm.group(1).upper() if nm else os.path.basename(fpath).replace('.txt','').upper()
+
+                  # JTWC 내부 코드명 → 실제 태풍 이름으로 치환
+                  name_map = {'WRNCEN':'MEKKHALA', 'WTNT':'MEKKHALA'}
+                  name = name_map.get(name, name)
 
                   # 기압/풍속
                   pm = re.search(r'(\d{3,4})\s*MB', txt, re.I)
