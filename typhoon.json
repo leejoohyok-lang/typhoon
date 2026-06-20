@@ -1,13 +1,22 @@
 {
-  "updated_utc": "2026-06-20T14:06:25Z",
-  "updated_jst": "2026/06/20 23:06 JST",
-  "typhoon_count": 0,
-  "typhoons": [],
+  "updated_utc": "2026-06-20T14:11:03Z",
+  "updated_jst": "2026/06/20 23:11 JST",
+  "typhoon_count": 1,
+  "typhoons": [
+    {
+      "source": "JTWC",
+      "name": "WRNCEN",
+      "lat": 14.1,
+      "lon": 136.8,
+      "dist": 2047,
+      "pressure": "997",
+      "wind": "--"
+    }
+  ],
   "sources": {
     "jma": false,
-    "rsmc": true,
     "jtwc": true,
-    "kma": true,
-    "nhc": false
+    "jma_en": true,
+    "kma": true
   }
 }
