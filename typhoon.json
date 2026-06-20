@@ -1,10 +1,12 @@
 {
-  "updated_utc": "2026-06-20T13:52:23Z",
-  "updated_jst": "2026/06/20 22:52 JST",
+  "updated_utc": "2026-06-20T13:57:53Z",
+  "updated_jst": "2026/06/20 22:57 JST",
   "typhoon_count": 0,
   "typhoons": [],
   "sources": {
     "jma": false,
-    "nhc": true
+    "nhc": true,
+    "jtwc": true,
+    "digital": true
   }
 }
