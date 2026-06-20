@@ -319,11 +319,13 @@
     </div>
 
     <div class="prob-bar-wrap">
-      <div class="prob-bar-label"><span>🔴 鹿児島に直接上陸 (직접 상륙)</span><span id="p1">--%</span></div>
+      <div class="prob-bar-label"><span>🔴 鹿児島に直接上陸 (가고시마 직접 상륙)</span><span id="p1">--%</span></div>
       <div class="prob-bar"><div class="prob-bar-fill fill-red" id="pb1" style="width:0%"></div></div>
-      <div class="prob-bar-label"><span>🟡 九州西岸・熊本方面 (규슈 서안·구마모토)</span><span id="p2">--%</span></div>
+      <div class="prob-bar-label"><span>🟡 九州西岸〜熊本に上陸 (규슈 서안·구마모토)</span><span id="p2">--%</span></div>
       <div class="prob-bar"><div class="prob-bar-fill fill-yellow" id="pb2" style="width:0%"></div></div>
-      <div class="prob-bar-label"><span>🔵 東方転向・太平洋側へ (동쪽 전향)</span><span id="p3">--%</span></div>
+      <div class="prob-bar-label"><span>🟠 台湾〜中国本土へ進入 (타이완→중국 본토)</span><span id="p5">--%</span></div>
+      <div class="prob-bar"><div class="prob-bar-fill" id="pb5" style="width:0%;background:#fb923c;"></div></div>
+      <div class="prob-bar-label"><span>🔵 東方転向・太平洋側へ (동쪽 전향·태평양)</span><span id="p3">--%</span></div>
       <div class="prob-bar"><div class="prob-bar-fill fill-blue" id="pb3" style="width:0%"></div></div>
       <div class="prob-bar-label"><span>⚪ 温帯低気圧に変質 (온대저압부 변질)</span><span id="p4">--%</span></div>
       <div class="prob-bar"><div class="prob-bar-fill fill-gray" id="pb4" style="width:0%"></div></div>
@@ -428,14 +430,21 @@ function calcLandingProb(t){
 
   const hitProb = Math.min(85, Math.round(baseHit * dirMult * latMult));
 
-  // 5) 나머지 시나리오 배분
+  // 5) 나머지 시나리오 배분 (5개)
   const remain = 100 - hitProb;
-  // 규슈 서안: 직격 다음으로 가능성 높음
-  const westProb  = Math.round(remain * 0.38);
-  // 동방 전향: 편서풍 전향 가능성
-  const eastProb  = Math.round(remain * 0.42);
+
+  // 타이완→중국: 북서진 지속 시 가장 자연스러운 경로 (방위각이 서쪽일수록 높음)
+  const chinaBase = bearing < -20 ? 0.35 : bearing < 0 ? 0.28 : 0.18; // 서쪽 방향일수록 높음
+  const chinaProb = Math.round(remain * chinaBase);
+
+  // 규슈 서안
+  const westProb = Math.round(remain * 0.28);
+
+  // 동방 전향
+  const eastProb = Math.round(remain * 0.22);
+
   // 온대저압부: 나머지
-  const weakProb  = 100 - hitProb - westProb - eastProb;
+  const weakProb = 100 - hitProb - chinaProb - westProb - eastProb;
 
   // 6) 방향명 (가고시마에서 봤을 때 태풍이 어디 있는지)
   let dirName;
@@ -446,7 +455,7 @@ function calcLandingProb(t){
   else                       dirName = '側方向から接近中 (측면에서 접근 중)';
 
   return {
-    hitProb, westProb, eastProb, weakProb,
+    hitProb, westProb, chinaProb, eastProb, weakProb,
     dist, bearing: Math.round(bearing),
     dirName,
     lat: t.lat, lon: t.lon
@@ -473,7 +482,7 @@ function renderProbCard(typhoons){
     `方位: ${p.dirName}<br>` +
     `<span style="font-size:10px;">(거리·방향 기반 실시간 산출)</span>`;
 
-  // 항공편 영향 가능성 = 직접 상륙 + 규슈 서안 (둘 다 가고시마 영향권)
+  // 항공편 영향 가능성 = 직접 상륙 + 규슈 서안
   const flightRisk = p.hitProb + p.westProb;
   const flightEl = document.getElementById('flight-pct');
   const flightLabel = document.getElementById('flight-label');
@@ -498,6 +507,7 @@ function renderProbCard(typhoons){
   const bars = [
     {id:'p1', bar:'pb1', val:p.hitProb},
     {id:'p2', bar:'pb2', val:p.westProb},
+    {id:'p5', bar:'pb5', val:p.chinaProb},
     {id:'p3', bar:'pb3', val:p.eastProb},
     {id:'p4', bar:'pb4', val:p.weakProb},
   ];
@@ -545,7 +555,7 @@ function buildTimeline(typhoons){
       jaDate:'6月24〜25日',krDate:'6월 24~25일',
       jaDone:'台風が北上し沖縄〜奄美方面へ接近した時期。',krDone:'태풍이 북상하여 오키나와·아마미 방면으로 접근한 시기입니다.',
       jaActive:'台風が北上中かを確認中。沖縄〜奄美方面への接近を監視。',krActive:'태풍 북상 여부 확인 중. 오키나와·아마미 방면 접근을 감시 중입니다.',
-      jaFuture:`<span style="color:var(--text);font-weight:600;">接近シナリオ別確率${probTag}</span><br>🔴 直接北上し接近: <strong style="color:var(--warn);">${p1+p2}%</strong><br>🔵 東方海上を通過: <strong style="color:var(--safe);">${p3+p4}%</strong>`,
+      jaFuture:`<span style="color:var(--text);font-weight:600;">接近シナリオ別確率${probTag}</span><br>🔴🟡 九州・鹿児島方面: <strong style="color:#fbbf24;">${p1+p2}%</strong><br>🟠 台湾〜中国本土方面: <strong style="color:#fb923c;">${prob ? prob.chinaProb : 25}%</strong><br>🔵 東方海上を通過: <strong style="color:#38bdf8;">${p3+p4}%</strong>`,
       krFuture:'진로는 아직 확정되지 않았으며 실시간 확률로 감시 중입니다.'
     },
     {m:6,d:26,
@@ -553,11 +563,12 @@ function buildTimeline(typhoons){
       jaDone:'進路の重要分岐点。偏西風との相互作用で進路が決まった時期。',krDone:'진로의 중요 분기점. 편서풍 상호작용으로 진로가 결정된 시기입니다.',
       jaActive:'今日が進路の重要分岐点。偏西風との相互作用で北東転向するかを確認中。',krActive:'오늘이 진로의 중요 분기점. 편서풍 상호작용으로 북동 전향 여부를 확인 중입니다.',
       jaFuture:`<span style="color:var(--text);font-weight:600;">鹿児島上陸シナリオ別確率${probTag}</span><br>
-        🔴 鹿児島に直接上陸: <strong style="color:var(--danger);">${p1}%</strong><br>
-        🟡 九州西岸〜熊本に上陸: <strong style="color:var(--warn);">${p2}%</strong><br>
-        🔵 東方へ転向し太平洋側へ: <strong style="color:var(--safe);">${p3}%</strong><br>
-        ⚪ 温帯低気圧に変化: <strong style="color:var(--muted);">${p4}%</strong><br>
-        <span style="margin-top:4px;display:inline-block;padding:4px 8px;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:6px;color:var(--warn);font-size:10px;">
+        🔴 鹿児島に直接上陸: <strong style="color:#f87171;">${p1}%</strong><br>
+        🟡 九州西岸〜熊本に上陸: <strong style="color:#fbbf24;">${p2}%</strong><br>
+        🟠 台湾〜中国本土へ進入: <strong style="color:#fb923c;">${prob ? prob.chinaProb : 25}%</strong><br>
+        🔵 東方へ転向し太平洋側へ: <strong style="color:#38bdf8;">${p3}%</strong><br>
+        ⚪ 温帯低気圧に変化: <strong style="color:#5a7090;">${p4}%</strong><br>
+        <span style="margin-top:4px;display:inline-block;padding:4px 8px;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:6px;color:#fbbf24;font-size:10px;">
           ✈️ 航空便影響リスク (항공편 영향 리스크): <strong>${flightRisk}%</strong>
         </span>`,
       krFuture:`진로 확정 분기점. 가고시마+규슈 서안 상륙 합산 항공편 영향 리스크: ${flightRisk}%`
