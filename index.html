@@ -653,7 +653,9 @@ async function fetchAll(){
   updateSourceStatus([
     {name:`typhoon.json — 最終更新: ${data.updated_jst||'--'} (최종 갱신)`, ok:true},
     {name:`JMA 気象庁`, ok:data.sources?.jma||false},
+    {name:`JTWC (서태평양 담당)`, ok:data.sources?.jtwc||false},
     {name:`NOAA NHC`,   ok:data.sources?.nhc||false},
+    {name:`Digital Typhoon`, ok:data.sources?.digital||false},
   ]);
 
   renderTyphoons(data.typhoons||[]);
