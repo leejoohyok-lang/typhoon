@@ -1,15 +1,24 @@
 {
-  "updated_utc": "2026-07-01T19:28:48Z",
-  "updated_jst": "2026/07/02 04:28 JST",
-  "typhoon_count": 1,
+  "updated_utc": "2026-07-01T22:12:17Z",
+  "updated_jst": "2026/07/02 07:12 JST",
+  "typhoon_count": 2,
   "typhoons": [
     {
       "source": "JTWC",
       "name": "MEKKHALA",
-      "lat": 9.8,
-      "lon": 162.3,
-      "dist": 4068,
-      "pressure": "1001",
+      "lat": 17.3,
+      "lon": 115.0,
+      "dist": 2233,
+      "pressure": "1003",
+      "wind": "--"
+    },
+    {
+      "source": "JTWC",
+      "name": "MEKKHALA",
+      "lat": 10.5,
+      "lon": 161.4,
+      "dist": 3943,
+      "pressure": "998",
       "wind": "--"
     }
   ],
